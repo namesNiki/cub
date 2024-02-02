@@ -1,43 +1,63 @@
 #include <stdio.h>
+#include <time.h>
 #include <curses.h>
 #include <math.h>
 #include <stdlib.h>
 
 #define DEFAULT_CHAR '#'
+#define PI 3.141592654
+
+#define AXIS_X 0
+#define AXIS_Y 1
+#define AXIS_Z 2
+
+void msleep(int msec)
+{
+    struct timespec ts;
+    ts.tv_sec = msec / 1000;
+    ts.tv_nsec = (msec % 1000) * 1000000;
+    nanosleep(&ts, NULL);
+}
 
 typedef struct {
-   int x;
-   int y;
-   int z;
+   float x;
+   float y;
+   float z;
 } Vector3;
 
 typedef struct {
+   float x;
+   float y;
+} Vector2;
+
+typedef struct {
    int x;
    int y;
-} Vector2;
+} Vector2i;
 
 typedef struct {
   Vector3* verticies;
   int verticies_length;
-  Vector2* edges;
+  Vector2i* edges;
   int edges_length;
 } Mesh;
 
 typedef struct {
-  int matrix[3][3];
+  float matrix[3][3];
 } Matrix3;
 
-Matrix3 gen_translation_matrix(int x, int y, int z) {
+void print_matrix3(Matrix3 matrix) {
+  printf("{%f, %f, %f}\n", matrix.matrix[0][0], matrix.matrix[0][1], matrix.matrix[0][2]);
+  printf("{%f, %f, %f}\n", matrix.matrix[1][0], matrix.matrix[1][1], matrix.matrix[1][2]);
+  printf("{%f, %f, %f}\n", matrix.matrix[2][0], matrix.matrix[2][1], matrix.matrix[2][2]);
+}
+
+Matrix3 gen_scale_matrix(float x, float y, float z) {
   Matrix3 m;
-  int mat[3][3] = {
-    {x, 0, 0},
-    {0, y, 0},
-    {0, 0, z},
-  };
 
   for (int i = 0; i < 3; i++) {
     for (int j = 0; j < 3; j++) {
-      m.matrix[i][j] = 0;
+      m.matrix[i][j] = 0.0;
     }
   }
   m.matrix[0][0] = x;
@@ -45,7 +65,59 @@ Matrix3 gen_translation_matrix(int x, int y, int z) {
   m.matrix[2][2] = z;
   return m;
 }
-Vector3 apply_matrix_vector_to_number(Vector3 vector, int number) {
+
+Matrix3 gen_rotation_matrix(float theta, int axis) {
+  theta = (theta * PI)/180.0;
+  
+  Matrix3 m;
+  float mat_x[3][3] = {
+    {1.0, 0.0, 0.0},
+    {0.0, cosf(theta), -sinf(theta)},
+    {0.0, sinf(theta), cosf(theta)},
+  };
+  float mat_y[3][3] = {
+    {cosf(theta), 0.0, sinf(theta)},
+    {0.0, 1.0, 0.0},
+    {-sinf(theta), 0.0, cosf(theta)},
+  };
+  float mat_z[3][3] = {
+    {cosf(theta), -sinf(theta), 0.0},
+    {sinf(theta), cosf(theta), 0.0},
+    {0.0, 0.0, 1.0},
+  };
+  switch (axis) {
+    case AXIS_X: {
+      for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+          m.matrix[j][i] = mat_x[j][i];
+        }
+      }
+      return m;
+      break;
+    }
+    case AXIS_Y: {
+      for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+          m.matrix[i][j] = mat_y[i][j];
+        }
+      }
+      return m;
+      break;
+    }
+    case AXIS_Z: {
+      for (int i = 0; i < 3; i++) {
+        for (int j = 0; j < 3; j++) {
+          m.matrix[i][j] = mat_z[i][j];
+        }
+      }
+      return m;
+      break;
+    }
+  }
+
+  return m;
+}
+Vector3 apply_matrix_vector_to_number(Vector3 vector, float number) {
   Vector3 out = (Vector3){
     vector.x * number,
     vector.y * number,
@@ -90,11 +162,19 @@ void drawline(Vector2* point0, Vector2* point1);
 void render_mesh(Mesh* mesh, int focal_length) {
   Vector2 rendered_points[mesh->verticies_length];
 
+  int x, y;
+  
+  getmaxyx(stdscr, y, x);
+
+  float y_pos, x_pos;
+  y_pos = (float)y;
+  x_pos = (float)x;
+
   Vector3 vertex;
   for (int i = 0; i < mesh->verticies_length; i++) {
     vertex = (Vector3){
-      mesh->verticies[i].x + 20,
-      mesh->verticies[i].y + 50,
+      mesh->verticies[i].x + y_pos/2.0,
+      mesh->verticies[i].y + x_pos/2.0,
       mesh->verticies[i].z,
     };
     rendered_points[i] = plot_3d(&vertex, focal_length);
@@ -105,13 +185,21 @@ void render_mesh(Mesh* mesh, int focal_length) {
   }
 }
 
+void print_mesh(Mesh mesh) {
+  printf("Verticies:\n");
+  for (int i = 0; i < mesh.verticies_length; i++) {
+    printf("{%f, %f, %f},\n", mesh.verticies[i].x, mesh.verticies[i].y, mesh.verticies[i].z);
+  }
+  
+}
+
 void plot(Vector2 p) {
    mvaddch(p.x, p.y, DEFAULT_CHAR);
 }
 
 void drawline(Vector2* point0, Vector2 *point1) { 
-   int X0 = point0->x, Y0 = point0->y;
-   int X1 = point1->x, Y1 = point1->y;
+   int X0 = (int)point0->x, Y0 = (int)point0->y;
+   int X1 = (int)point1->x, Y1 = (int)point1->y;
 
     int dx = X1 - X0; 
     int dy = Y1 - Y0; 
@@ -130,9 +218,9 @@ void drawline(Vector2* point0, Vector2 *point1) {
     } 
 } 
 
-int calculate_distance_from_middle(Vector2 point, int focal_length) {
+int calculate_distance_from_middle(Vector2 point, float focal_length) {
   int up = point.x * focal_length;
-  int down = focal_length + point.y;
+  float down = focal_length + point.y;
   return up/down;
 }
 
@@ -147,6 +235,7 @@ Vector2 plot_3d(Vector3* point, int focal_length) {
 
 int main() {
   initscr();
+  curs_set(0);
   keypad(stdscr, true);
 
   Mesh mesh;
@@ -154,17 +243,17 @@ int main() {
   mesh.verticies_length= 8;
 
   mesh.verticies = (Vector3[]){
-    {-1, -1, -1}, // 0
-    { 1, -1, -1}, // 1
-    {-1,  1, -1}, // 2
-    { 1,  1, -1}, // 3
-    {-1, -1,  1}, // 4
-    { 1, -1,  1}, // 5
-    {-1,  1,  1}, // 6
-    { 1,  1,  1}, // 7
+    {-1.0, -1.0, -1.0}, // 0
+    { 1.0, -1.0, -1.0}, // 1
+    {-1.0,  1.0, -1.0}, // 2
+    { 1.0,  1.0, -1.0}, // 3
+    {-1.0, -1.0,  1.0}, // 4
+    { 1.0, -1.0,  1.0}, // 5
+    {-1.0,  1.0,  1.0}, // 6
+    { 1.0,  1.0,  1.0}, // 7
   };
 
-  mesh.edges = (Vector2[]) {
+  mesh.edges = (Vector2i[]) {
     {0, 1},
     {0, 2},
     {0, 4},
@@ -179,24 +268,21 @@ int main() {
     {6, 7},
   };
 
-  mesh = apply_matrix_to_mesh(mesh, gen_translation_matrix(15, 30, 15));
-
-  render_mesh(&mesh, 160);
-  
-
-  refresh();
-  getch();
+  Matrix3 rotationX = gen_rotation_matrix(2.0, AXIS_X);
+  Matrix3 rotationY = gen_rotation_matrix(1.0, AXIS_Y);
+  Matrix3 rotationZ = gen_rotation_matrix(3.0, AXIS_Z);
 
 
-  // Matrix3 matrix = gen_translation_matrix(3, 3, 3);
+  mesh = apply_matrix_to_mesh(mesh, gen_scale_matrix(15, 15, 15));
+  while (true) {
+    clear();
+    mesh = apply_matrix_to_mesh(mesh, rotationX);
+    mesh = apply_matrix_to_mesh(mesh, rotationY);
+    // mesh = apply_matrix_to_mesh(mesh, rotationZ);
+    render_mesh(&mesh, 160.0);
+    refresh();
+    msleep(100);
+  }
 
-  
-  // Vector3 test = {1, 2, 1};
-  // Vector3 out = apply_matrix_to_vertex(test, matrix);
-  // printf("%i, %i, %i", out.x, out.y, out.z);
-
-  printf("{%i, %i, %i}\n", mesh.verticies[0].x, mesh.verticies[0].y, mesh.verticies[0].z);
-  
   endwin();
-  printf("{%i, %i, %i}\n", mesh.verticies[0].x, mesh.verticies[0].y, mesh.verticies[0].z);
 }
