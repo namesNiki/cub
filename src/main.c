@@ -258,6 +258,9 @@ void drawline(Vector2* point0, Vector2* point1);
 
 void render_mesh(Mesh* mesh, int focal_length) {
   Vector2 rendered_points[mesh->verticies_length];
+  init_pair(1, COLOR_RED, COLOR_BLACK);
+  init_pair(2, COLOR_YELLOW, COLOR_BLACK);
+  init_pair(3, COLOR_MAGENTA, COLOR_BLACK);
 
   int x, y;
   
@@ -277,8 +280,24 @@ void render_mesh(Mesh* mesh, int focal_length) {
     rendered_points[i] = plot_3d(&vertex, focal_length);
 
   }
+  attron(COLOR_PAIR(2));
   for (int i = 0; i < mesh->edges_length; i++) {
     drawline(&rendered_points[mesh->edges[i].x], &rendered_points[mesh->edges[i].y]);
+  }
+  attroff(COLOR_PAIR(2));
+
+  for (int i = 0; i < mesh->verticies_length; i++) {
+    Vector2 point_coords = rendered_points[i];
+
+    attron(COLOR_PAIR(3));
+    mvaddch(point_coords.x, point_coords.y, '@');
+    attroff(COLOR_PAIR(3));
+    
+    point_coords.y -= 3;
+
+    attron(COLOR_PAIR(1));
+    mvaddch(point_coords.x, point_coords.y, i + '0');
+    attroff(COLOR_PAIR(1));
   }
 }
 
@@ -334,33 +353,40 @@ int main() {
   initscr();
   curs_set(0);
   keypad(stdscr, true);
+  start_color();
+  init_color(COLOR_BLACK, 0, 0, 0);
+  init_color(COLOR_YELLOW, 800, 500, 0);
 
-  Mesh mesh1 = gen_cube_mesh();
 
   float speed = 3.0;
   Matrix3 rotationX = gen_rotation_matrix(speed, AXIS_X);
   Matrix3 rotationY = gen_rotation_matrix(speed, AXIS_Y);
   Matrix3 rotationZ = gen_rotation_matrix(speed, AXIS_Z);
 
+  Mesh mesh1 = gen_cube_mesh();
+  Mesh mesh2 = gen_tetrahedron_mesh();
 
   mesh1 = apply_matrix_to_mesh(mesh1, gen_scale_matrix_uniform(15));
+  mesh2 = apply_matrix_to_mesh(mesh2, gen_scale_matrix_uniform(5));
 
   bool should_stop = false;
   int counter = 0;
   while (!should_stop) {
     clear();
     counter++;
-    if (counter >= TIME * 10) should_stop = true;
     mesh1 = apply_matrix_to_mesh(mesh1, rotationX);
-    mesh1 = apply_matrix_to_mesh(mesh1, rotationY);
+    // mesh1 = apply_matrix_to_mesh(mesh1, rotationY);
     mesh1 = apply_matrix_to_mesh(mesh1, rotationZ);
+    mesh2 = apply_matrix_to_mesh(mesh2, rotationZ);
     render_mesh(&mesh1, 160.0);
+    render_mesh(&mesh2, 160.0);
     refresh();
     msleep(100);
     // getch();
   }
 
   free(mesh1.verticies); free(mesh1.edges);
+  free(mesh2.verticies); free(mesh2.edges);
 
   endwin();
 }
