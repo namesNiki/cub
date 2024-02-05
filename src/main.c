@@ -3,10 +3,12 @@
 #include <curses.h>
 #include <math.h>
 #include <stdlib.h>
+#include <pthread.h>
 
 #define DEFAULT_CHAR '#'
 #define PI 3.141592654
 #define TIME 30
+#define DELAY 50
 
 #define AXIS_X 0
 #define AXIS_Y 1
@@ -41,6 +43,7 @@ typedef struct {
   int verticies_length;
   Vector2i* edges;
   int edges_length;
+  int id;
 } Mesh;
 
 Mesh gen_cube_mesh() {
@@ -49,6 +52,7 @@ Mesh gen_cube_mesh() {
   mesh.edges_length = 12;
   mesh.verticies = (Vector3*)calloc(8, sizeof(Vector3));
   mesh.edges = (Vector2i*)calloc(12, sizeof(Vector2));
+  mesh.id = 0;
 
   Mesh mesh_temp;
 
@@ -253,45 +257,37 @@ Mesh apply_matrix_to_mesh(Mesh mesh, Matrix3 matrix) {
   return mesh;
 }
 
-Vector2 plot_3d(Vector3* point, int focal_length);
+Vector2 plot_3d(Vector3* point, int focal_length, Vector2i offset);
 void drawline(Vector2* point0, Vector2* point1);
 
 void render_mesh(Mesh* mesh, int focal_length) {
   Vector2 rendered_points[mesh->verticies_length];
   init_pair(1, COLOR_RED, COLOR_BLACK);
-  init_pair(2, COLOR_YELLOW, COLOR_BLACK);
-  init_pair(3, COLOR_MAGENTA, COLOR_BLACK);
+  init_pair(2, COLOR_MAGENTA, COLOR_BLACK);
+  init_pair(3, COLOR_YELLOW, COLOR_BLACK);
+  init_pair(4, COLOR_BLUE, COLOR_BLACK);
+  init_pair(5, COLOR_GREEN, COLOR_BLACK);
 
   int x, y;
   
   getmaxyx(stdscr, y, x);
 
-  float y_pos, x_pos;
-  y_pos = (float)y;
-  x_pos = (float)x;
-
-  Vector3 vertex;
+  Vector2i offset = (Vector2i){x/2, y/2};
   for (int i = 0; i < mesh->verticies_length; i++) {
-    vertex = (Vector3){
-      mesh->verticies[i].x + y_pos/2.0,
-      mesh->verticies[i].y + x_pos/2.0,
-      mesh->verticies[i].z,
-    };
-    rendered_points[i] = plot_3d(&vertex, focal_length);
-
+    rendered_points[i] = plot_3d(&mesh->verticies[i], focal_length, offset);
   }
-  attron(COLOR_PAIR(2));
+  attron(COLOR_PAIR(3 + mesh->id));
   for (int i = 0; i < mesh->edges_length; i++) {
     drawline(&rendered_points[mesh->edges[i].x], &rendered_points[mesh->edges[i].y]);
   }
-  attroff(COLOR_PAIR(2));
+  attroff(COLOR_PAIR(3 + mesh->id));
 
   for (int i = 0; i < mesh->verticies_length; i++) {
     Vector2 point_coords = rendered_points[i];
 
-    attron(COLOR_PAIR(3));
+    attron(COLOR_PAIR(2));
     mvaddch(point_coords.x, point_coords.y, '@');
-    attroff(COLOR_PAIR(3));
+    attroff(COLOR_PAIR(2));
     
     point_coords.y -= 3;
 
@@ -340,16 +336,19 @@ int calculate_distance_from_middle(Vector2 point, float focal_length) {
   return up/down;
 }
 
-Vector2 plot_3d(Vector3* point, int focal_length) {
+Vector2 plot_3d(Vector3* point, int focal_length, Vector2i offset) {
   int x = calculate_distance_from_middle((Vector2){point->x, point->z}, focal_length);
   int y = calculate_distance_from_middle((Vector2){point->y, point->z}, focal_length);
   
-  plot((Vector2){x, y});
+  plot((Vector2){x + offset.y, y + offset.x});
 
-  return (Vector2){x, y};
+  return (Vector2){x + offset.y, y + offset.x};
 }
 
-int main() {
+int io_char = 0;
+pthread_mutex_t io_char_mutex = PTHREAD_MUTEX_INITIALIZER;
+
+void* drawing_thread(void* arg) {
   initscr();
   curs_set(0);
   keypad(stdscr, true);
@@ -363,30 +362,80 @@ int main() {
   Matrix3 rotationY = gen_rotation_matrix(speed, AXIS_Y);
   Matrix3 rotationZ = gen_rotation_matrix(speed, AXIS_Z);
 
-  Mesh mesh1 = gen_cube_mesh();
-  Mesh mesh2 = gen_tetrahedron_mesh();
+  Matrix3 negrotX = gen_rotation_matrix(-speed, AXIS_X);
+  Matrix3 negrotY = gen_rotation_matrix(-speed, AXIS_Y);
+  Matrix3 negrotZ = gen_rotation_matrix(-speed, AXIS_Z);
 
-  mesh1 = apply_matrix_to_mesh(mesh1, gen_scale_matrix_uniform(15));
-  mesh2 = apply_matrix_to_mesh(mesh2, gen_scale_matrix_uniform(5));
+  Matrix3 shear = gen_shear_matrix(0.2, 0.0);
+
+  Mesh meshes[] = {
+    gen_cube_mesh(),
+  };
+  int meshes_length = sizeof(meshes)/sizeof(meshes[0]);
+  for (int i = 0; i < meshes_length; i++) {
+    meshes[i].id = i;
+  }
+
+  meshes[0] = apply_matrix_to_mesh(meshes[0], gen_scale_matrix_uniform(15));
 
   bool should_stop = false;
   int counter = 0;
   while (!should_stop) {
+    pthread_mutex_lock(&io_char_mutex);
+    if (io_char != 0) {
+      
+    }
+    pthread_mutex_unlock(&io_char_mutex);
     clear();
+
     counter++;
-    mesh1 = apply_matrix_to_mesh(mesh1, rotationX);
-    // mesh1 = apply_matrix_to_mesh(mesh1, rotationY);
-    mesh1 = apply_matrix_to_mesh(mesh1, rotationZ);
-    mesh2 = apply_matrix_to_mesh(mesh2, rotationZ);
-    render_mesh(&mesh1, 160.0);
-    render_mesh(&mesh2, 160.0);
+    if (counter >= TIME * (1000/DELAY)) should_stop = true;
+    int delay = 1000 * (1.0/DELAY);
+    if (counter % delay == 0) {
+      for (int i = 0; i < meshes_length; i++) {
+        meshes[i].id++;
+        meshes[i].id %= meshes_length;
+      }
+    }
+
+    meshes[0] = apply_matrix_to_mesh(meshes[0], negrotX);
+    for (int i = 0; i < meshes_length; i++) {
+      render_mesh(&meshes[i], 160);
+    }
     refresh();
-    msleep(100);
-    // getch();
+
+    msleep(DELAY);
   }
 
-  free(mesh1.verticies); free(mesh1.edges);
-  free(mesh2.verticies); free(mesh2.edges);
+  for (int i = 0; i < meshes_length; i++) {
+    free(meshes[i].verticies);
+    free(meshes[i].edges);
+  }
 
   endwin();
+  return NULL;
+}
+
+void* io_thread(void* arg) {
+  while (true) {
+    int char_from_getch = getch();
+    pthread_mutex_lock(&io_char_mutex);
+    io_char = char_from_getch;
+    pthread_mutex_unlock(&io_char_mutex);
+    pthread_t draw = (pthread_t)arg;
+    getch();
+    pthread_join(draw, NULL);
+    return NULL;
+  }
+  return NULL;
+}
+
+int main() {
+  pthread_t drawing_thread_id;
+  pthread_t io_thread_id;
+  pthread_create(&drawing_thread_id, NULL, drawing_thread, NULL);
+  pthread_create(&io_thread_id, NULL, io_thread, (void*)drawing_thread_id);
+  // pthread_join(drawing_thread_id, NULL);
+  pthread_join(io_thread_id, NULL);
+  return 0;
 }
